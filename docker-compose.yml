@@ -1,0 +1,151 @@
+version: '3.9'
+
+# ==========================================
+# TEMPLATE DÙNG CHUNG (YAML Anchors)
+# Giúp file ngắn gọn, dễ quản lý và ép cấu hình đồng loạt
+# ==========================================
+x-spring-service: &spring-template
+  restart: unless-stopped
+  env_file:
+    - .env
+  networks:
+    - spring-net
+  # Ép giới hạn RAM cực kỳ quan trọng cho máy cấu hình thấp
+  deploy:
+    resources:
+      limits:
+        memory: 300M
+  environment:
+    # Ép JVM của Java không được "nuốt" quá giới hạn RAM
+    - JAVA_OPTS=-Xmx200m -Xms128m
+  # Giới hạn dung lượng file log để không bị đầy ổ cứng VPS
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # ==========================================
+  # 1. TRAEFIK GATEWAY
+  # ==========================================
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8000:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - spring-net
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+
+  # ==========================================
+  # 2. USER SERVICE
+  # ==========================================
+  user-service:
+    <<: *spring-template
+    image: registry.gitlab.com/loghai.0210/kltn/user-service:latest
+    container_name: user-service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.user-api.rule=(Host(`api.local.dev`) || Host(`127.0.0.1`)) && PathPrefix(`/api/user`)"
+      - "traefik.http.routers.user-api.entrypoints=web"
+      - "traefik.http.services.user-api.loadbalancer.server.port=8083"
+
+  # ==========================================
+  # 3. BOOKING SERVICE
+  # ==========================================
+  booking-service:
+    <<: *spring-template
+    image: registry.gitlab.com/loghai.0210/kltn/booking-service:latest
+    container_name: booking-service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.booking-api.rule=(Host(`api.local.dev`) || Host(`127.0.0.1`)) && (PathPrefix(`/api/booking`) || PathPrefix(`/api/branch`) || PathPrefix(`/api/court`) || PathPrefix(`/api/court-type`) || PathPrefix(`/api/price-rule`) || PathPrefix(`/api/team-posts`) || PathPrefix(`/api/items`) || PathPrefix(`/api/skill-level`))"
+      - "traefik.http.routers.booking-api.entrypoints=web"
+      - "traefik.http.services.booking-api.loadbalancer.server.port=8084"
+
+  # ==========================================
+  # 4. SEARCH SERVICE
+  # ==========================================
+  search-service:
+    <<: *spring-template
+    image: registry.gitlab.com/loghai.0210/kltn/search-service:latest
+    container_name: search-service
+    environment:
+      - JAVA_OPTS=-Xmx200m -Xms128m
+      - SPRING_BOOT_AUTOCONFIGURE_EXCLUDE=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.search-api.rule=(Host(`api.local.dev`) || Host(`127.0.0.1`)) && PathPrefix(`/api/search`)"
+      - "traefik.http.routers.search-api.entrypoints=web"
+      - "traefik.http.services.search-api.loadbalancer.server.port=8085"
+
+  # ==========================================
+  # 5. NOTIFICATION SERVICE
+  # ==========================================
+  notification-service:
+    <<: *spring-template
+    image: registry.gitlab.com/loghai.0210/kltn/notification-service:latest
+    container_name: notification-service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.notification-api.rule=(Host(`api.local.dev`) || Host(`127.0.0.1`)) && PathPrefix(`/api/notification`)"
+      - "traefik.http.routers.notification-api.entrypoints=web"
+      - "traefik.http.services.notification-api.loadbalancer.server.port=8086"
+
+  # ==========================================
+  # 6. NEWS SERVICE
+  # ==========================================
+  news-service:
+    <<: *spring-template
+    image: registry.gitlab.com/loghai.0210/kltn/news-service:latest
+    container_name: news-service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.news-api.rule=(Host(`api.local.dev`) || Host(`127.0.0.1`)) && PathPrefix(`/api/news`)"
+      - "traefik.http.routers.news-api.entrypoints=web"
+      - "traefik.http.services.news-api.loadbalancer.server.port=8087"
+
+  # ==========================================
+  # 7. GALLERY SERVICE
+  # ==========================================
+  gallery-service:
+    <<: *spring-template
+    image: registry.gitlab.com/loghai.0210/kltn/gallery-service:latest
+    container_name: gallery-service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gallery-api.rule=(Host(`api.local.dev`) || Host(`127.0.0.1`)) && PathPrefix(`/api/gallery`)"
+      - "traefik.http.routers.gallery-api.entrypoints=web"
+      - "traefik.http.services.gallery-api.loadbalancer.server.port=8088"
+
+  # ==========================================
+  # 8. PAYMENT SERVICE
+  # ==========================================
+  payment-service:
+    <<: *spring-template
+    image: registry.gitlab.com/loghai.0210/kltn/payment-service:latest
+    container_name: payment-service
+    environment:
+      - JAVA_OPTS=-Xmx200m -Xms128m
+      - TZ=${TZ}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.payment-api.rule=(Host(`api.local.dev`) || Host(`127.0.0.1`)) && PathPrefix(`/api/payment`)"
+      - "traefik.http.routers.payment-api.entrypoints=web"
+      - "traefik.http.services.payment-api.loadbalancer.server.port=8089"
+
+networks:
+  spring-net:
+    driver: bridge
