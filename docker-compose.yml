@@ -33,18 +33,45 @@ services:
     image: traefik:v3.0
     container_name: traefik
     command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=spring-net" 
-      - "--entrypoints.web.address=:80
+      - "--providers.docker.network=spring-net"
+
+      # 1. Kích hoạt giao diện Dashboard quản lý (Tùy chọn)
+      - "--api.insecure=false"
+      - "--api.dashboard=true"
+      
+      # 2. Định nghĩa các Entrypoints (Cổng mạng)
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      
+      # 3. Tự động chuyển hướng từ HTTP (80) sang HTTPS (443) cho mọi domain
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      
+      # 4. Kích hoạt kết nối với Docker để tự động đọc cấu hình các container khác
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false" # Bảo mật: chỉ nhận container nào có label cho phép
+      
+      # 5. Cấu hình Let's Encrypt (Certificates Resolvers)
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=loghai.dev@gmail.com" # Thay bằng Email của bạn
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
     ports:
       - "80:80"
-      - "8000:8080"
+      - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      # Tạo volume để lưu trữ file chứa chứng chỉ SSL (tránh bị mất khi restart container)
+      - "./letsencrypt:/letsencrypt"
     networks:
       - spring-net
+    labels:
+      # Cấu hình bảo mật để truy cập giao diện Dashboard của Traefik bằng HTTPS (Tùy chọn)
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`api.matchix.cloud`)" # Thay bằng domain của bạn
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls.certresolver=myresolver"
     deploy:
       resources:
         limits:
@@ -60,7 +87,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.user-api.rule=(Host(`api.local.dev`) || Host(`127.0.0.1`)) && PathPrefix(`/api/user`)"
-      - "traefik.http.routers.user-api.entrypoints=web"
+      - "traefik.http.routers.user-api.entrypoints=websecure"
       - "traefik.http.services.user-api.loadbalancer.server.port=8083"
 
   # ==========================================
